@@ -24,7 +24,7 @@ buildscript {
 
 plugins {
     id("groovy")
-    id("com.gradleup.shadow") version "9.6.0"
+    id("com.gradleup.shadow") version "9.6.1"
     id("io.micronaut.application") version "5.0.2"
     id("jacoco")
 }
@@ -53,15 +53,13 @@ dependencies {
     runtimeOnly("org.yaml:snakeyaml")
 
     implementation("jakarta.annotation:jakarta.annotation-api")
-    implementation 'io.projectreactor:reactor-core:3.8.6'
-
     implementation("io.swagger.core.v3:swagger-annotations")
     compileOnly("io.micronaut.openapi:micronaut-openapi"){
         exclude module:"slf4j-nop"
     }
 
     runtimeOnly("ch.qos.logback:logback-classic")
-
+    implementation 'com.trevorism:micronaut-utility-beans:2.1.1'
     testImplementation 'com.trevorism:test-result-events:0.3.0'
     acceptanceImplementation 'io.cucumber:cucumber-groovy:6.10.4'
 }
