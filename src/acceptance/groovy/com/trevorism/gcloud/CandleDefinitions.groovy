@@ -23,6 +23,16 @@ When(/an anonymous client requests hourly candles for {string}/) { String pair -
     connection.disconnect()
 }
 
+When(/an anonymous client posts to {string}/) { String path ->
+    HttpURLConnection connection = (HttpURLConnection) new URL("${baseUrl}${path}").openConnection()
+    connection.requestMethod = "POST"
+    connection.doOutput = true
+    connection.setRequestProperty("Content-Type", "application/json")
+    connection.outputStream.withWriter { it << '{"pair":"LTCUSD"}' }
+    responseCode = connection.responseCode
+    connection.disconnect()
+}
+
 Then(/the request is rejected as unauthorized/) { ->
     assert responseCode in [401, 403]
 }
