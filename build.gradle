@@ -60,6 +60,7 @@ dependencies {
 
     runtimeOnly("ch.qos.logback:logback-classic")
     implementation 'com.trevorism:micronaut-utility-beans:2.1.1'
+    implementation 'com.google.cloud:google-cloud-bigquery:2.70.0'
     testImplementation 'com.trevorism:test-result-events:0.3.0'
     acceptanceImplementation 'io.cucumber:cucumber-groovy:6.10.4'
 }
