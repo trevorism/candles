@@ -1,6 +1,5 @@
 package com.trevorism.service
 
-import com.trevorism.data.PingingDatastoreRepository
 import com.trevorism.data.Repository
 import com.trevorism.https.AppClientSecureHttpClient
 import com.trevorism.model.AvailablePair
@@ -50,7 +49,9 @@ class PairService {
 
     private Repository<TrackedPair> trackedPairRepository() {
         if (repository == null) {
-            repository = new PingingDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
+            WakingDatastoreRepository<TrackedPair> wakingRepository = new WakingDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
+            wakingRepository.ping()
+            repository = wakingRepository
         }
         return repository
     }
