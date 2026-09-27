@@ -1,5 +1,6 @@
 package com.trevorism.service
 
+import com.trevorism.data.FastDatastoreRepository
 import com.trevorism.data.Repository
 import com.trevorism.https.AppClientSecureHttpClient
 import com.trevorism.model.AvailablePair
@@ -9,7 +10,7 @@ import jakarta.inject.Inject
 @jakarta.inject.Singleton
 class PairService {
 
-    private Repository<TrackedPair> repository
+    private Repository<TrackedPair> repository = new FastDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
     private final MarketDataClient marketDataClient
 
     @Inject
@@ -18,7 +19,7 @@ class PairService {
     }
 
     List<TrackedPair> listTracked() {
-        return (trackedPairRepository().list() ?: []).sort { it.pair }
+        return (repository.list() ?: []).sort { it.pair }
     }
 
     List<AvailablePair> listAvailable(String quoteName) {
@@ -43,17 +44,8 @@ class PairService {
         if (!available) {
             throw new IllegalArgumentException("Kraken does not list pair '${normalized}'; see GET /pair/available for valid names")
         }
-        return trackedPairRepository().create(new TrackedPair(pair: available.pair, baseName: available.baseName,
+        return repository.create(new TrackedPair(pair: available.pair, baseName: available.baseName,
                 quoteName: available.quoteName, createdDate: new Date()))
-    }
-
-    private Repository<TrackedPair> trackedPairRepository() {
-        if (repository == null) {
-            WakingDatastoreRepository<TrackedPair> wakingRepository = new WakingDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
-            wakingRepository.ping()
-            repository = wakingRepository
-        }
-        return repository
     }
 
     TrackedPair untrack(String pair) {
@@ -61,6 +53,6 @@ class PairService {
         if (!existing) {
             throw new IllegalArgumentException("Pair '${pair}' is not tracked")
         }
-        return trackedPairRepository().delete(existing.id)
+        return repository.delete(existing.id)
     }
 }
