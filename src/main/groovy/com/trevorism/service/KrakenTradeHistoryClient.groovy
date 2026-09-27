@@ -23,7 +23,7 @@ class KrakenTradeHistoryClient implements TradeHistoryClient {
 
     @Override
     List<Trade> getTrades(String pair, Date from, Date to) {
-        List<Trade> trades = []
+        Map<Long, Trade> tradesById = new LinkedHashMap<>()
         String since = String.valueOf(from.time * NANOS_PER_MILLI)
         for (int page = 0; page < MAX_PAGES; page++) {
             if (page > 0) {
@@ -36,11 +36,13 @@ class KrakenTradeHistoryClient implements TradeHistoryClient {
             Map result = response.result as Map
             List<List> rows = result.find { key, value -> key != "last" }?.value as List<List> ?: []
             List<Trade> pageTrades = rows.collect { List row -> toTrade(row) }
-            trades.addAll(pageTrades.findAll { !it.time.before(from) && it.time.before(to) })
+            pageTrades.findAll { !it.time.before(from) && it.time.before(to) }.each { Trade trade ->
+                tradesById.putIfAbsent(trade.id, trade)
+            }
             String last = result.last as String
             boolean reachedEnd = pageTrades.isEmpty() || !pageTrades.last().time.before(to) || last == since
             if (reachedEnd) {
-                return trades
+                return tradesById.values().toList()
             }
             since = last
         }
@@ -50,6 +52,7 @@ class KrakenTradeHistoryClient implements TradeHistoryClient {
     static Trade toTrade(List row) {
         BigDecimal seconds = new BigDecimal(row[2].toString())
         return new Trade(
+                id: row[6] as long,
                 price: new BigDecimal(row[0].toString()).doubleValue(),
                 volume: new BigDecimal(row[1].toString()).doubleValue(),
                 time: new Date((seconds * 1000).longValue())
