@@ -10,7 +10,7 @@ import jakarta.inject.Inject
 @jakarta.inject.Singleton
 class PairService {
 
-    private Repository<TrackedPair> repository = new PingingDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
+    private Repository<TrackedPair> repository
     private final MarketDataClient marketDataClient
 
     @Inject
@@ -19,7 +19,7 @@ class PairService {
     }
 
     List<TrackedPair> listTracked() {
-        return (repository.list() ?: []).sort { it.pair }
+        return (trackedPairRepository().list() ?: []).sort { it.pair }
     }
 
     List<AvailablePair> listAvailable(String quoteName) {
@@ -44,8 +44,15 @@ class PairService {
         if (!available) {
             throw new IllegalArgumentException("Kraken does not list pair '${normalized}'; see GET /pair/available for valid names")
         }
-        return repository.create(new TrackedPair(pair: available.pair, baseName: available.baseName,
+        return trackedPairRepository().create(new TrackedPair(pair: available.pair, baseName: available.baseName,
                 quoteName: available.quoteName, createdDate: new Date()))
+    }
+
+    private Repository<TrackedPair> trackedPairRepository() {
+        if (repository == null) {
+            repository = new PingingDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
+        }
+        return repository
     }
 
     TrackedPair untrack(String pair) {
@@ -53,6 +60,6 @@ class PairService {
         if (!existing) {
             throw new IllegalArgumentException("Pair '${pair}' is not tracked")
         }
-        return repository.delete(existing.id)
+        return trackedPairRepository().delete(existing.id)
     }
 }
