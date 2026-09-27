@@ -16,3 +16,9 @@ Pairs are data, not config:
 
 # How to build
 `gradle clean build`
+
+History beyond Kraken's 720-candle REST window (admin only):
+- `POST /import/archive {"sourceUri": "gs://trevorism-candles-archive/2026Q2/*USD_60.csv", "from": "2023-07-01"}` inserts missing hourly candles from Kraken's quarterly OHLCVT archive, read in place from GCS. Existing candles are never overwritten. The archive has no VWAP, so `(high+low+close)/3` is stored.
+- `POST /import/trades/{pair}?date=2026-07-01` rebuilds one UTC day of hourly candles from Kraken trade history. Use it to close the gap between the archive's end and the REST window.
+
+Every row records its `source`: `kraken-ohlc`, `kraken-trades`, or `kraken-archive`.

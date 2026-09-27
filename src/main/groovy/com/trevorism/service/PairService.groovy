@@ -1,6 +1,6 @@
 package com.trevorism.service
 
-import com.trevorism.data.PingingDatastoreRepository
+import com.trevorism.data.FastDatastoreRepository
 import com.trevorism.data.Repository
 import com.trevorism.https.AppClientSecureHttpClient
 import com.trevorism.model.AvailablePair
@@ -10,7 +10,7 @@ import jakarta.inject.Inject
 @jakarta.inject.Singleton
 class PairService {
 
-    private Repository<TrackedPair> repository = new PingingDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
+    private Repository<TrackedPair> repository = new FastDatastoreRepository<>(TrackedPair, new AppClientSecureHttpClient())
     private final MarketDataClient marketDataClient
 
     @Inject

@@ -2,6 +2,7 @@ package com.trevorism.service
 
 import com.trevorism.model.Candle
 import com.trevorism.model.CandleInterval
+import com.trevorism.model.CandleSource
 import jakarta.inject.Inject
 
 import java.time.Instant
@@ -13,6 +14,7 @@ import java.time.format.DateTimeParseException
 class CandleService {
 
     static final int DEFAULT_CANDLE_COUNT = 500
+    static final int ARCHIVE_DEFAULT_DAYS = 3 * 365
     private static final String PAIR_PATTERN = /^[A-Z0-9]{2,20}$/
 
     private final CandleRepository candleRepository
@@ -40,6 +42,15 @@ class CandleService {
         List<Candle> cleaned = candles.collect { Candle candle -> normalizeHourlyCandle(candle) }
         List<Candle> deduplicated = cleaned.groupBy { [it.pair, it.time] }.values().collect { it.last() }
         candleRepository.save(deduplicated)
+    }
+
+    long importArchive(String sourceUri, String from) {
+        String uri = sourceUri?.trim()
+        if (!uri || !uri.startsWith("gs://") || !uri.endsWith(CandleSql.ARCHIVE_FILE_SUFFIX)) {
+            throw new IllegalArgumentException("sourceUri must be a gs:// path to Kraken hourly files ending in ${CandleSql.ARCHIVE_FILE_SUFFIX}, e.g. gs://bucket/2026Q2/*USD${CandleSql.ARCHIVE_FILE_SUFFIX}")
+        }
+        Date start = from ? parseDate(from) : CandleInterval.ONE_DAY.minus(clock.call(), ARCHIVE_DEFAULT_DAYS)
+        return candleRepository.importArchive(uri, CandleInterval.ONE_DAY.bucketStart(start))
     }
 
     static String normalizePair(String pair) {
@@ -75,7 +86,8 @@ class CandleService {
                 close: candle.close,
                 vwap: candle.vwap ?: candle.close,
                 volume: candle.volume,
-                tradeCount: candle.tradeCount ?: 0L
+                tradeCount: candle.tradeCount ?: 0L,
+                source: candle.source ?: CandleSource.KRAKEN_OHLC
         )
     }
 }

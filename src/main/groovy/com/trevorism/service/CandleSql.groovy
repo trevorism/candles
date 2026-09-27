@@ -1,9 +1,13 @@
 package com.trevorism.service
 
+import com.trevorism.model.CandleSource
+
 class CandleSql {
 
     static final String DATASET = "candles"
     static final String HOURLY_TABLE = "hourly_candle"
+    static final String ARCHIVE_TABLE = "archive"
+    static final String ARCHIVE_FILE_SUFFIX = "_60.csv"
 
     static String merge() {
         return """
@@ -18,15 +22,39 @@ USING (
     @closes[OFFSET(i)] AS close,
     @vwaps[OFFSET(i)] AS vwap,
     @volumes[OFFSET(i)] AS volume,
-    @tradeCounts[OFFSET(i)] AS tradeCount
+    @tradeCounts[OFFSET(i)] AS tradeCount,
+    @sources[OFFSET(i)] AS source
   FROM UNNEST(@pairs) AS pair WITH OFFSET i
 ) S
 ON T.pair = S.pair AND T.time = S.time AND T.time BETWEEN @minTime AND @maxTime
 WHEN MATCHED THEN UPDATE SET
   open = S.open, high = S.high, low = S.low, close = S.close,
-  vwap = S.vwap, volume = S.volume, tradeCount = S.tradeCount, ingestedAt = CURRENT_TIMESTAMP()
-WHEN NOT MATCHED THEN INSERT (pair, time, open, high, low, close, vwap, volume, tradeCount, ingestedAt)
-  VALUES (S.pair, S.time, S.open, S.high, S.low, S.close, S.vwap, S.volume, S.tradeCount, CURRENT_TIMESTAMP())
+  vwap = S.vwap, volume = S.volume, tradeCount = S.tradeCount, source = S.source, ingestedAt = CURRENT_TIMESTAMP()
+WHEN NOT MATCHED THEN INSERT (pair, time, open, high, low, close, vwap, volume, tradeCount, source, ingestedAt)
+  VALUES (S.pair, S.time, S.open, S.high, S.low, S.close, S.vwap, S.volume, S.tradeCount, S.source, CURRENT_TIMESTAMP())
+"""
+    }
+
+    static String mergeArchive() {
+        return """
+MERGE `${DATASET}.${HOURLY_TABLE}` T
+USING (
+  SELECT
+    REGEXP_EXTRACT(_FILE_NAME, r'([A-Z0-9]+)_60\\.csv\$') AS pair,
+    TIMESTAMP_SECONDS(ts) AS time,
+    open,
+    high,
+    low,
+    close,
+    (high + low + close) / 3 AS vwap,
+    volume,
+    trades AS tradeCount
+  FROM ${ARCHIVE_TABLE}
+  WHERE ts >= @fromSeconds
+) S
+ON T.pair = S.pair AND T.time = S.time AND T.time >= TIMESTAMP_SECONDS(@fromSeconds)
+WHEN NOT MATCHED AND S.pair IS NOT NULL THEN INSERT (pair, time, open, high, low, close, vwap, volume, tradeCount, source, ingestedAt)
+  VALUES (S.pair, S.time, S.open, S.high, S.low, S.close, S.vwap, S.volume, S.tradeCount, '${CandleSource.KRAKEN_ARCHIVE}', CURRENT_TIMESTAMP())
 """
     }
 

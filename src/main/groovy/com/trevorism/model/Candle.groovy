@@ -17,4 +17,5 @@ class Candle {
     Double vwap
     Double volume
     Long tradeCount
+    String source
 }

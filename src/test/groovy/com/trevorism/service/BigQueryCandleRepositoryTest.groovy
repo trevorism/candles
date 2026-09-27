@@ -82,7 +82,39 @@ class BigQueryCandleRepositoryTest {
         assert definition.timePartitioning.type == TimePartitioning.Type.MONTH
         assert definition.timePartitioning.field == "time"
         assert definition.clustering.fields == ["pair", "time"]
-        assert definition.schema.fields*.name == ["pair", "time", "open", "high", "low", "close", "vwap", "volume", "tradeCount", "ingestedAt"]
+        assert definition.schema.fields*.name == ["pair", "time", "open", "high", "low", "close", "vwap", "volume", "tradeCount", "ingestedAt", "source"]
+    }
+
+    @Test
+    void testMergeJobBindsSources() {
+        List<Candle> batch = [new Candle(pair: "LTCUSD", time: utc("2026-09-26T11:00:00Z"), open: 1, high: 2, low: 0.5, close: 1.5,
+                vwap: 1.2, volume: 10, tradeCount: 3, source: "kraken-trades")]
+
+        QueryJobConfiguration job = BigQueryCandleRepository.buildMergeJob(batch)
+
+        assert job.namedParameters.sources.arrayValues*.value == ["kraken-trades"]
+        assert job.query.contains("source = S.source")
+    }
+
+    @Test
+    void testArchiveJobReadsGcsFilesAndOnlyInsertsMissingCandles() {
+        QueryJobConfiguration job = BigQueryCandleRepository.buildArchiveMergeJob("gs://bucket/2026Q2/*USD_60.csv", utc("2023-07-01T00:00:00Z"))
+        ExternalTableDefinition archive = job.tableDefinitions.archive
+
+        assert archive.sourceUris == ["gs://bucket/2026Q2/*USD_60.csv"]
+        assert archive.schema.fields*.name == ["ts", "open", "high", "low", "close", "volume", "trades"]
+        assert job.namedParameters.fromSeconds.value == String.valueOf(utc("2023-07-01T00:00:00Z").time.intdiv(1000))
+        assert job.query.contains("REGEXP_EXTRACT(_FILE_NAME, r'([A-Z0-9]+)_60\\.csv\$')")
+        assert job.query.contains("'kraken-archive'")
+        assert !job.query.contains("WHEN MATCHED")
+    }
+
+    @Test
+    void testMissingFieldsFindsColumnsAddedSinceTableCreation() {
+        Schema original = Schema.of(BigQueryCandleRepository.hourlySchema().fields.findAll { it.name != "source" })
+
+        assert BigQueryCandleRepository.missingFields(original)*.name == ["source"]
+        assert BigQueryCandleRepository.missingFields(BigQueryCandleRepository.hourlySchema()).isEmpty()
     }
 
     @Test
