@@ -4,4 +4,5 @@ build/
 classes/
 *.iml
 out/
+historical_data/
 secrets.properties

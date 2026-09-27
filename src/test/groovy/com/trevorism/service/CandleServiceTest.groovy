@@ -93,6 +93,38 @@ class CandleServiceTest {
     }
 
     @Test
+    void testSaveDefaultsSourceToKrakenOhlcButKeepsExplicitSource() {
+        Candle ohlc = new Candle(pair: "LTCUSD", time: utc("2026-09-26T10:00:00Z"), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10)
+        Candle trades = new Candle(pair: "SOLUSD", time: utc("2026-09-26T10:00:00Z"), open: 1, high: 2, low: 0.5, close: 1.5, volume: 10, source: "kraken-trades")
+
+        createService().saveHourlyCandles([ohlc, trades])
+
+        assert savedCandles.find { it.pair == "LTCUSD" }.source == "kraken-ohlc"
+        assert savedCandles.find { it.pair == "SOLUSD" }.source == "kraken-trades"
+    }
+
+    @Test
+    void testImportArchiveAlignsStartToDayAndDefaultsToThreeYears() {
+        List importCall = []
+        CandleService service = new CandleService([importArchive: { String uri, Date from -> importCall = [uri, from]; 42L }] as CandleRepository)
+        service.@clock = { utc("2026-09-26T13:45:00Z") }
+
+        assert service.importArchive("gs://bucket/2026Q2/*USD_60.csv", "2023-07-01T05:00:00Z") == 42L
+        assert importCall == ["gs://bucket/2026Q2/*USD_60.csv", utc("2023-07-01T00:00:00Z")]
+
+        service.importArchive("gs://bucket/2026Q2/*USD_60.csv", null)
+        assert importCall[1] == utc("2023-09-27T00:00:00Z")
+    }
+
+    @Test
+    void testImportArchiveRejectsNonArchiveUris() {
+        CandleService service = createService()
+        assertThrows(IllegalArgumentException, { service.importArchive(null, null) })
+        assertThrows(IllegalArgumentException, { service.importArchive("/local/LTCUSD_60.csv", null) })
+        assertThrows(IllegalArgumentException, { service.importArchive("gs://bucket/LTCUSD_1440.csv", null) })
+    }
+
+    @Test
     void testSaveRejectsIncompleteCandle() {
         Candle missingClose = new Candle(pair: "LTCUSD", time: new Date(), open: 1, high: 2, low: 0.5, volume: 10)
         assertThrows(IllegalArgumentException, { createService().saveHourlyCandles([missingClose]) })

@@ -41,6 +41,34 @@ class BigQueryCandleRepository implements CandleRepository {
         return result.iterateAll().collect { FieldValueList row -> toCandle(row) }
     }
 
+    @Override
+    long importArchive(String sourceUri, Date from) {
+        ensureTableExists()
+        Job job = client.create(JobInfo.of(buildArchiveMergeJob(sourceUri, from))).waitFor()
+        if (job?.status?.error) {
+            throw new IllegalStateException("Archive import failed: ${job.status.error.message}")
+        }
+        return ((JobStatistics.QueryStatistics) job.statistics).numDmlAffectedRows ?: 0L
+    }
+
+    static QueryJobConfiguration buildArchiveMergeJob(String sourceUri, Date from) {
+        Schema archiveSchema = Schema.of(
+                Field.of("ts", StandardSQLTypeName.INT64),
+                Field.of("open", StandardSQLTypeName.FLOAT64),
+                Field.of("high", StandardSQLTypeName.FLOAT64),
+                Field.of("low", StandardSQLTypeName.FLOAT64),
+                Field.of("close", StandardSQLTypeName.FLOAT64),
+                Field.of("volume", StandardSQLTypeName.FLOAT64),
+                Field.of("trades", StandardSQLTypeName.INT64)
+        )
+        ExternalTableDefinition archive = ExternalTableDefinition.of(sourceUri, archiveSchema,
+                CsvOptions.newBuilder().setSkipLeadingRows(0).build())
+        return QueryJobConfiguration.newBuilder(CandleSql.mergeArchive())
+                .addTableDefinition(CandleSql.ARCHIVE_TABLE, archive)
+                .addNamedParameter("fromSeconds", QueryParameterValue.int64(TimeUnit.MILLISECONDS.toSeconds(from.time)))
+                .build()
+    }
+
     static QueryJobConfiguration buildMergeJob(List<Candle> batch) {
         return QueryJobConfiguration.newBuilder(CandleSql.merge())
                 .addNamedParameter("pairs", QueryParameterValue.array(batch*.pair as String[], String))
@@ -52,6 +80,7 @@ class BigQueryCandleRepository implements CandleRepository {
                 .addNamedParameter("vwaps", QueryParameterValue.array(batch*.vwap as Double[], Double))
                 .addNamedParameter("volumes", QueryParameterValue.array(batch*.volume as Double[], Double))
                 .addNamedParameter("tradeCounts", QueryParameterValue.array(batch*.tradeCount as Long[], Long))
+                .addNamedParameter("sources", QueryParameterValue.array(batch*.source as String[], String))
                 .addNamedParameter("minTime", QueryParameterValue.timestamp(toMicros(batch*.time.min())))
                 .addNamedParameter("maxTime", QueryParameterValue.timestamp(toMicros(batch*.time.max())))
                 .build()
@@ -82,7 +111,21 @@ class BigQueryCandleRepository implements CandleRepository {
     }
 
     static TableInfo hourlyTableInfo() {
-        Schema schema = Schema.of(
+        StandardTableDefinition definition = StandardTableDefinition.newBuilder()
+                .setSchema(hourlySchema())
+                .setTimePartitioning(TimePartitioning.newBuilder(TimePartitioning.Type.MONTH).setField("time").build())
+                .setClustering(Clustering.newBuilder().setFields(["pair", "time"]).build())
+                .build()
+        return TableInfo.of(TableId.of(CandleSql.DATASET, CandleSql.HOURLY_TABLE), definition)
+    }
+
+    static List<Field> missingFields(Schema current) {
+        Set<String> existingNames = current.fields*.name as Set
+        return hourlySchema().fields.findAll { !(it.name in existingNames) }
+    }
+
+    static Schema hourlySchema() {
+        return Schema.of(
                 Field.newBuilder("pair", StandardSQLTypeName.STRING).setMode(Field.Mode.REQUIRED).build(),
                 Field.newBuilder("time", StandardSQLTypeName.TIMESTAMP).setMode(Field.Mode.REQUIRED).build(),
                 Field.of("open", StandardSQLTypeName.FLOAT64),
@@ -92,14 +135,9 @@ class BigQueryCandleRepository implements CandleRepository {
                 Field.of("vwap", StandardSQLTypeName.FLOAT64),
                 Field.of("volume", StandardSQLTypeName.FLOAT64),
                 Field.of("tradeCount", StandardSQLTypeName.INT64),
-                Field.of("ingestedAt", StandardSQLTypeName.TIMESTAMP)
+                Field.of("ingestedAt", StandardSQLTypeName.TIMESTAMP),
+                Field.of("source", StandardSQLTypeName.STRING)
         )
-        StandardTableDefinition definition = StandardTableDefinition.newBuilder()
-                .setSchema(schema)
-                .setTimePartitioning(TimePartitioning.newBuilder(TimePartitioning.Type.MONTH).setField("time").build())
-                .setClustering(Clustering.newBuilder().setFields(["pair", "time"]).build())
-                .build()
-        return TableInfo.of(TableId.of(CandleSql.DATASET, CandleSql.HOURLY_TABLE), definition)
     }
 
     private void ensureTableExists() {
@@ -109,10 +147,22 @@ class BigQueryCandleRepository implements CandleRepository {
         if (client.getDataset(DatasetId.of(CandleSql.DATASET)) == null) {
             createIgnoringConflict { client.create(DatasetInfo.of(CandleSql.DATASET)) }
         }
-        if (client.getTable(TableId.of(CandleSql.DATASET, CandleSql.HOURLY_TABLE)) == null) {
+        Table table = client.getTable(TableId.of(CandleSql.DATASET, CandleSql.HOURLY_TABLE))
+        if (table == null) {
             createIgnoringConflict { client.create(hourlyTableInfo()) }
+        } else {
+            addMissingColumns(table)
         }
         tableReady = true
+    }
+
+    private static void addMissingColumns(Table table) {
+        Schema current = table.getDefinition().getSchema()
+        List<Field> missing = missingFields(current)
+        if (missing) {
+            Schema updated = Schema.of(current.fields.toList() + missing)
+            table.toBuilder().setDefinition(table.getDefinition().toBuilder().setSchema(updated).build()).build().update()
+        }
     }
 
     private static void createIgnoringConflict(Closure creation) {
